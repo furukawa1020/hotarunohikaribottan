@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -188,22 +191,56 @@ func GenerateTriggeredHTML() string {
 func main() {
 	// Initialize Redis Connection
 	initRedis()
+	defer func() {
+		if rdb != nil {
+			rdb.Close()
+			log.Println("Redis connection closed")
+		}
+	}()
+
 	// Initialize PubSub Listener
-	go ListenPubSub(context.Background())
+	pubSubCtx, pubSubCancel := context.WithCancel(context.Background())
+	defer pubSubCancel()
+	go ListenPubSub(pubSubCtx)
 
 	fs := http.FileServer(http.Dir("../frontend"))
-	http.Handle("/", fs)
+	mux := http.NewServeMux()
+	mux.Handle("/", fs)
 
-	// Apply Auth Middleware to WS endpoint
-	http.HandleFunc("/ws", AuthMiddleware(handleConnections))
+	// Apply Auth Middleware to WS endpoint with Rate Limiting logic implicitly handled by HMAC state
+	mux.HandleFunc("/ws", AuthMiddleware(handleConnections))
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	log.Println("Robust Go Server started on port " + port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal("ListenAndServe:", err)
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
 	}
+
+	// Graceful Shutdown Channel
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		log.Println("Robust Go Server started on port " + port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+	<-stop // Block until signal
+	log.Println("Shutting down gracefully...")
+
+	// Create a deadline for shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server force shutdown: %v", err)
+	}
+
+	log.Println("Server stopping successfully")
 }
