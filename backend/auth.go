@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/golang-jwt/jwt/v5"
+	"strings"
 )
 
 // ZoomAuthContext holds the decoded JWT payload from Zoom
@@ -21,17 +24,22 @@ func getZoomClientSecret() string {
 	// In production, this MUST be set
 	secret := os.Getenv("ZOOM_CLIENT_SECRET")
 	if secret == "" {
-		// Fallback for local testing bypass if explicit bypassing is allowed,
-		// but in "gachi-gachi" mode, we should ideally require it.
-		// For the sake of not breaking local dev instantly without keys, we allow a dummy secret,
-		// but warn loudly.
 		log.Println("WARNING: ZOOM_CLIENT_SECRET is not set. Using dummy secret for development.")
 		return "dummy_secret_for_local_dev"
 	}
 	return secret
 }
 
-// VerifyZoomContext validates the x-zoom-app-context header and returns the extracted Context
+// decodeBase64URL decodes base64url strings with or without padding
+func decodeBase64URL(s string) ([]byte, error) {
+	// Add padding if missing
+	if m := len(s) % 4; m != 0 {
+		s += strings.Repeat("=", 4-m)
+	}
+	return base64.URLEncoding.DecodeString(s)
+}
+
+// VerifyZoomContext decrypts the x-zoom-app-context header (AES-256-GCM) and returns the extracted Context
 func VerifyZoomContext(appContext string) (*ZoomAuthContext, error) {
 	if appContext == "" {
 		return nil, fmt.Errorf("missing x-zoom-app-context header")
@@ -39,55 +47,68 @@ func VerifyZoomContext(appContext string) (*ZoomAuthContext, error) {
 
 	secret := getZoomClientSecret()
 
-	// Parse takes the token string and a function for looking up the key.
-	token, err := jwt.Parse(appContext, func(token *jwt.Token) (interface{}, error) {
-		// Don't forget to validate the alg is what you expect:
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
-
+	b, err := decodeBase64URL(appContext)
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		return nil, fmt.Errorf("base64 decode error: %w", err)
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		// Basic extraction of Zoom context payload
-		payloadAttr, ok := claims["ctx"].(string) // Sometimes it's nested
-		var ctx ZoomAuthContext
-
-		if ok {
-			// Context is often stringified JSON inside 'ctx' or direct
-			err := json.Unmarshal([]byte(payloadAttr), &ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse ctx payload: %w", err)
-			}
-		} else {
-			// Direct mapping
-			if uid, ok := claims["uid"].(string); ok {
-				ctx.UID = uid
-			}
-			if mid, ok := claims["mid"].(string); ok {
-				ctx.Mid = mid
-			}
-		}
-
-		if ctx.Mid == "" || ctx.UID == "" {
-			return nil, fmt.Errorf("missing mid or uid in context")
-		}
-
-		return &ctx, nil
+	// Format: IV(16) + AAD(24) + CipherText(N) + AuthTag(16)
+	// Min length 16+24+1+16 = 57
+	if len(b) < 57 {
+		return nil, fmt.Errorf("context payload too short")
 	}
 
-	return nil, fmt.Errorf("invalid claims")
+	iv := b[:16]
+	aad := b[16:40]
+	cipherText := b[40 : len(b)-16]
+	authTag := b[len(b)-16:]
+
+	// AES-256-GCM using SHA-256 of client_secret as the key
+	hash := sha256.Sum256([]byte(secret))
+
+	block, err := aes.NewCipher(hash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Zoom uses a 16-byte IV for GCM instead of the standard 12
+	aesgcm, err := cipher.NewGCMWithNonceSize(block, 16)
+	if err != nil {
+		return nil, err
+	}
+
+	// Go cipher.Open expects ciphertext and authTag to be concatenated
+	cTextWithTag := append(cipherText, authTag...)
+
+	plainText, err := aesgcm.Open(nil, iv, cTextWithTag, aad)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed: %w", err)
+	}
+
+	// Parse JSON payload
+	var payload map[string]interface{}
+	if err := json.Unmarshal(plainText, &payload); err != nil {
+		return nil, fmt.Errorf("json parse failed: %w", err)
+	}
+
+	var ctx ZoomAuthContext
+	if uid, ok := payload["uid"].(string); ok {
+		ctx.UID = uid
+	}
+	if mid, ok := payload["mid"].(string); ok {
+		ctx.Mid = mid
+	}
+
+	if ctx.Mid == "" || ctx.UID == "" {
+		return nil, fmt.Errorf("missing mid or uid in context payload")
+	}
+
+	return &ctx, nil
 }
 
 // AuthMiddleware extracts Zoom context from HTTP requests/WebSockets
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// WebSocket connection might pass context differently (e.g. query param) since headers are hard in standard JS WebSocket API.
-		// HTMX ext-ws allows appending parameters.
 		appContext := r.Header.Get("x-zoom-app-context")
 		if appContext == "" {
 			appContext = r.URL.Query().Get("zoom_context")
