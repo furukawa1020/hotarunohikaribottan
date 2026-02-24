@@ -145,7 +145,8 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Skip verification if DEV_BYPASS=true (for pure local browser testing without Zoom)
-		if os.Getenv("DEV_BYPASS") == "true" {
+		if strings.TrimSpace(os.Getenv("DEV_BYPASS")) == "true" {
+			log.Println("[DEBUG] DEV_BYPASS is active. Bypassing Zoom Auth.")
 			ctx := context.WithValue(r.Context(), "zoomCtx", &ZoomAuthContext{
 				Mid: r.URL.Query().Get("roomId"),
 				UID: r.URL.Query().Get("pid"),
@@ -154,12 +155,21 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		log.Printf("[DEBUG] Incoming request to %s from %s", r.URL.Path, r.RemoteAddr)
+		if appContext == "" {
+			log.Println("[DEBUG] Authentication failed: Missing x-zoom-app-context header and query param")
+			http.Error(w, "Unauthorized: Context Missing", http.StatusUnauthorized)
+			return
+		}
+
 		zCtx, err := VerifyZoomContext(appContext)
 		if err != nil {
-			log.Printf("Authentication failed: %v", err)
+			log.Printf("[DEBUG] Authentication failed for context verification: %v (appContext: %s)", err, appContext)
 			http.Error(w, "Unauthorized: Invalid Zoom Context", http.StatusUnauthorized)
 			return
 		}
+
+		log.Printf("[DEBUG] Zoom Auth Successful. UID: %s, Mid: %s", zCtx.UID, zCtx.Mid)
 
 		// Attach context to request
 		ctx := context.WithValue(r.Context(), "zoomCtx", zCtx)
