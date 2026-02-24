@@ -46,6 +46,12 @@ func PublishRoomUpdateTriggered(ctx context.Context, mid string) {
 }
 
 func publish(ctx context.Context, mid string, msg PubSubMessage) {
+	if !useRedis {
+		// Fallback: direct local broadcast
+		broadcastLocalRoom(mid, msg.HTML)
+		return
+	}
+
 	channel := fmt.Sprintf("%s%s", pubSubChannelPrefix, mid)
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -62,6 +68,12 @@ func publish(ctx context.Context, mid string, msg PubSubMessage) {
 // ListenPubSub subscribes to Redis channels using Pattern Subscription
 // and forwards received HTML fragments to local WebSocket clients.
 func ListenPubSub(ctx context.Context) {
+	if !useRedis {
+		// Nothing to listen to if we are in memory fallback mode
+		<-ctx.Done()
+		return
+	}
+
 	// PSubscribe listens to all channels starting with pubSubChannelPrefix
 	pattern := fmt.Sprintf("%s*", pubSubChannelPrefix)
 	pubsub := rdb.PSubscribe(ctx, pattern)
@@ -70,14 +82,22 @@ func ListenPubSub(ctx context.Context) {
 	ch := pubsub.Channel()
 	log.Printf("Listening to Redis PubSub pattern: %s", pattern)
 
-	for msg := range ch {
-		var psMsg PubSubMessage
-		if err := json.Unmarshal([]byte(msg.Payload), &psMsg); err != nil {
-			log.Printf("Failed to unmarshal received PubSub msg: %v", err)
-			continue
-		}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			var psMsg PubSubMessage
+			if err := json.Unmarshal([]byte(msg.Payload), &psMsg); err != nil {
+				log.Printf("Failed to unmarshal received PubSub msg: %v", err)
+				continue
+			}
 
-		// Push the HTML directly to all locally connected websockets in the room
-		broadcastLocalRoom(psMsg.RoomID, psMsg.HTML)
+			// Push the HTML directly to all locally connected websockets in the room
+			broadcastLocalRoom(psMsg.RoomID, psMsg.HTML)
+		}
 	}
 }
