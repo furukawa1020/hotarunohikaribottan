@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/websocket"
 )
@@ -109,8 +110,13 @@ func main() {
 	http.Handle("/", fs)
 	http.HandleFunc("/ws", handleConnections)
 
-	log.Println("Go Server started on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Println("Go Server started on port " + port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal("ListenAndServe:", err)
 	}
 }
