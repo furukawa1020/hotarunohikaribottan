@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -226,7 +227,7 @@ func main() {
 	// Apply Auth Middleware to WS endpoint with Rate Limiting logic implicitly handled by HMAC state
 	mux.HandleFunc("/ws", AuthMiddleware(handleConnections))
 
-	port := os.Getenv("PORT")
+	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
 		port = "8080"
 	}
