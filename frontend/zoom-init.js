@@ -50,10 +50,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         wsUrl += `&zoom_context=${encodeURIComponent(zoomContextStr)}`;
     }
 
+    // Remove existing ht-ext/ws-connect if they exist (from HTML hardcoding)
+    appContainer.removeAttribute("hx-ext");
+    appContainer.removeAttribute("ws-connect");
+
+    // Set them newly with the FULL url (including context)
     appContainer.setAttribute("hx-ext", "ws");
     appContainer.setAttribute("ws-connect", wsUrl);
 
-    // HTMX Initialization Request
+    // HTMX Initialization Request - strictly AFTER the URL is built
     htmx.process(appContainer);
 
     // Initial UI Setup

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,12 +10,13 @@
     <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body id="app">
     <!-- UI Container, dynamically connected to WS by zoom-init.js -->
     <main id="main-ui" class="waiting-mode">
         <h1 class="main-title">蛍の光ボタン</h1>
         <p class="subtitle">長引く会議を「空気」で終わらせよう</p>
-        
+
         <div id="gauge-container">
             <div class="gauge">
                 <div class="gauge-fill" style="width: 0%;"></div>
@@ -29,4 +31,5 @@
     <script src="https://appssdk.zoom.us/sdk.min.js"></script>
     <script src="zoom-init.js" defer></script>
 </body>
+
 </html>
