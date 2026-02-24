@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,8 +28,11 @@ type Client struct {
 }
 
 // In a real multi-server cluster, clients map only holds local connections.
-// Broadcasts to other servers happen via Redis PubSub (added next).
-var clients = make(map[*Client]bool)
+// Broadcasts to other servers happen via Redis PubSub.
+var (
+	clients   = make(map[*Client]bool)
+	clientsMu sync.RWMutex
+)
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	// 1. Retrieve Context from AuthMiddleware
@@ -60,8 +64,16 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	client := &Client{conn: conn, roomID: roomID, pid: pid}
+
+	clientsMu.Lock()
 	clients[client] = true
-	defer delete(clients, client)
+	clientsMu.Unlock()
+
+	defer func() {
+		clientsMu.Lock()
+		delete(clients, client)
+		clientsMu.Unlock()
+	}()
 
 	// Context for Redis ops
 	ctx := context.Background()
@@ -131,13 +143,17 @@ func isVoteMessage(msg map[string]interface{}) bool {
 
 // Broadcasts locally to all connected sockets for this room
 func broadcastLocalRoom(roomID string, html string) {
+	clientsMu.RLock()
+	defer clientsMu.RUnlock()
+
 	for client := range clients {
 		if client.roomID == roomID {
 			err := client.conn.WriteMessage(websocket.TextMessage, []byte(html))
 			if err != nil {
 				log.Printf("WS write error: %v", err)
 				client.conn.Close()
-				delete(clients, client)
+				// We do not delete here while holding RLock.
+				// The defer block in handleConnections will clean it up when ReadJSON fails.
 			}
 		}
 	}
