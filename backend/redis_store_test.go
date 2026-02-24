@@ -19,6 +19,7 @@ func setupTestRedis() (*miniredis.Miniredis, *redis.Client) {
 		Addr: mr.Addr(),
 	})
 
+	useRedis = true // Ensure tests use the Redis logic path
 	return mr, client
 }
 
