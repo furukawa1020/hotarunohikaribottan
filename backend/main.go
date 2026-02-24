@@ -222,7 +222,21 @@ func main() {
 
 	fs := http.FileServer(http.Dir("../frontend"))
 	mux := http.NewServeMux()
-	mux.Handle("/", fs)
+
+	// Intercept requests to save the Zoom App Context header into a cookie
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if ctxHeader := r.Header.Get("x-zoom-app-context"); ctxHeader != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "zoom_context",
+				Value:    ctxHeader,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteNoneMode,
+			})
+		}
+		fs.ServeHTTP(w, r)
+	})
 
 	// Apply Auth Middleware to WS endpoint with Rate Limiting logic implicitly handled by HMAC state
 	mux.HandleFunc("/ws", AuthMiddleware(handleConnections))

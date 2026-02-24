@@ -143,6 +143,11 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if appContext == "" {
 			appContext = r.URL.Query().Get("zoom_context")
 		}
+		if appContext == "" {
+			if cookie, err := r.Cookie("zoom_context"); err == nil {
+				appContext = cookie.Value
+			}
+		}
 
 		// Skip verification if DEV_BYPASS=true (for pure local browser testing without Zoom)
 		if strings.TrimSpace(os.Getenv("DEV_BYPASS")) == "true" {
