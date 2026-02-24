@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,7 +12,8 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // allowing any origin for testing
+		// Allows integration from any origin (Zoom Client, Localhost ngrok, etc.)
+		return true
 	},
 }
 
@@ -20,17 +23,32 @@ type Client struct {
 	pid    string
 }
 
-// Global clients map
+// In a real multi-server cluster, clients map only holds local connections.
+// Broadcasts to other servers happen via Redis PubSub (added next).
 var clients = make(map[*Client]bool)
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
-	roomID := r.URL.Query().Get("roomId")
-	pid := r.URL.Query().Get("pid")
-	if roomID == "" || pid == "" {
-		http.Error(w, "missing roomId or pid query param", http.StatusBadRequest)
+	// 1. Retrieve Context from AuthMiddleware
+	val := r.Context().Value("zoomCtx")
+	if val == nil {
+		http.Error(w, "Unauthorized Context Missing", http.StatusUnauthorized)
+		return
+	}
+	zoomCtx, ok := val.(*ZoomAuthContext)
+	if !ok {
+		http.Error(w, "Invalid Context Type", http.StatusInternalServerError)
 		return
 	}
 
+	roomID := zoomCtx.Mid
+	pid := zoomCtx.UID
+
+	if roomID == "" || pid == "" {
+		http.Error(w, "missing roomId or pid from Context", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Upgrade HTTP to WS
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade Error:", err)
@@ -42,13 +60,18 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	clients[client] = true
 	defer delete(clients, client)
 
-	room := getRoom(roomID)
-	room.AddParticipant(pid)
-	defer room.RemoveParticipant(pid)
+	// Context for Redis ops
+	ctx := context.Background()
 
-	// Broadcast updated gauge on join
-	if !room.IsTriggered {
-		broadcastRoom(roomID, room.GenerateGaugeHTML())
+	// 3. Add to Redis Participants
+	if err := AddParticipant(ctx, roomID, pid); err != nil {
+		log.Printf("Redis AddParticipant Error: %v", err)
+	}
+
+	// Broadcast updated gauge on join (via Local & PubSub)
+	_, _, isTriggered, _ := CheckTriggerStatus(ctx, roomID)
+	if !isTriggered {
+		PublishRoomUpdate(ctx, roomID)
 	} else {
 		// New participant joining triggered room, send them ending screen directly
 		conn.WriteMessage(websocket.TextMessage, []byte(GenerateTriggeredHTML()))
@@ -63,21 +86,32 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isVoteMessage(msg) {
-			if room.Vote(pid) {
-				if room.CheckTrigger() {
-					broadcastRoom(roomID, GenerateTriggeredHTML())
+			added, err := Vote(ctx, roomID, pid)
+			if err != nil {
+				log.Printf("Vote error: %v", err)
+				continue
+			}
+
+			if added { // Only process if it was a new vote
+				_, _, triggered, err := CheckTriggerStatus(ctx, roomID)
+				if err != nil {
+					log.Printf("CheckTrigger error: %v", err)
+				}
+
+				if triggered {
+					PublishRoomUpdateTriggered(ctx, roomID)
 				} else {
-					broadcastRoom(roomID, room.GenerateGaugeHTML())
+					PublishRoomUpdate(ctx, roomID)
 				}
 			}
 		}
 	}
 
-	// On disconnect, update gauge for others remaining
-	// Delay is minimal; in production we might debounce this.
-	// We handle it simply here.
-	if !room.IsTriggered {
-		broadcastRoom(roomID, room.GenerateGaugeHTML())
+	// On disconnect
+	RemoveParticipant(ctx, roomID, pid)
+	_, _, triggered, _ := CheckTriggerStatus(ctx, roomID)
+	if !triggered {
+		PublishRoomUpdate(ctx, roomID)
 	}
 }
 
@@ -87,12 +121,13 @@ func isVoteMessage(msg map[string]interface{}) bool {
 		return false
 	}
 	if v, exists := headers["HX-Request"]; exists && v == "true" {
-		return true // It's an HTMX requested message (clicked '帰る')
+		return true // clicked '帰る'
 	}
 	return false
 }
 
-func broadcastRoom(roomID string, html string) {
+// Broadcasts locally to all connected sockets for this room
+func broadcastLocalRoom(roomID string, html string) {
 	for client := range clients {
 		if client.roomID == roomID {
 			err := client.conn.WriteMessage(websocket.TextMessage, []byte(html))
@@ -105,17 +140,69 @@ func broadcastRoom(roomID string, html string) {
 	}
 }
 
+// Generate gauge string based on Redis DB values
+func GenerateGaugeFromDB(ctx context.Context, mid string) string {
+	total, votes, triggered, err := CheckTriggerStatus(ctx, mid)
+	if err != nil {
+		return ""
+	}
+	if triggered {
+		return ""
+	}
+
+	percent := 0.0
+	if total > 0 {
+		percent = float64(votes) / float64(total) * 100
+	}
+
+	statusText := "まだ早い"
+	if percent >= 50 {
+		statusText = "帰宅"
+	} else if percent >= 26 {
+		statusText = "そろそろ…"
+	}
+
+	html := fmt.Sprintf(`
+<div id="gauge-container" hx-swap-oob="true">
+	<div class="gauge">
+		<div class="gauge-fill" style="width: %.1f%%;"></div>
+	</div>
+	<p class="status-text">%s <span class="anonym-info">(匿名)</span></p>
+</div>
+`, percent, statusText)
+	return html
+}
+
+func GenerateTriggeredHTML() string {
+	return `
+<div id="main-ui" hx-swap-oob="true" class="triggered-mode">
+	<div class="ending-screen">
+		<h1 class="ending-title">本日の営業は終了しました</h1>
+		<p class="ending-sub">速やかにご退出ください</p>
+		<audio autoplay loop src="/hotaru-piano.mp3"></audio>
+	</div>
+</div>
+`
+}
+
 func main() {
+	// Initialize Redis Connection
+	initRedis()
+	// Initialize PubSub Listener
+	go ListenPubSub(context.Background())
+
 	fs := http.FileServer(http.Dir("../frontend"))
 	http.Handle("/", fs)
-	http.HandleFunc("/ws", handleConnections)
+
+	// Apply Auth Middleware to WS endpoint
+	http.HandleFunc("/ws", AuthMiddleware(handleConnections))
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	log.Println("Go Server started on port " + port)
+	log.Println("Robust Go Server started on port " + port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal("ListenAndServe:", err)
 	}
