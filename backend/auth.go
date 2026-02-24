@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -52,18 +53,48 @@ func VerifyZoomContext(appContext string) (*ZoomAuthContext, error) {
 		return nil, fmt.Errorf("base64 decode error: %w", err)
 	}
 
-	// Format: IV(16) + AAD(24) + CipherText(N) + AuthTag(16)
-	// Min length 16+24+1+16 = 57
-	if len(b) < 57 {
-		return nil, fmt.Errorf("context payload too short")
+	if len(b) < 1 {
+		return nil, fmt.Errorf("context payload too short (no ivLength)")
 	}
 
-	iv := b[:16]
-	aad := b[16:40]
-	cipherText := b[40 : len(b)-16]
-	authTag := b[len(b)-16:]
+	offset := 0
+	ivLength := int(b[offset])
+	offset += 1
 
-	// AES-256-GCM using SHA-256 of client_secret as the key
+	if len(b) < offset+ivLength {
+		return nil, fmt.Errorf("context payload too short (iv)")
+	}
+	iv := b[offset : offset+ivLength]
+	offset += ivLength
+
+	if len(b) < offset+2 {
+		return nil, fmt.Errorf("context payload too short (aadLength)")
+	}
+	aadLength := int(binary.LittleEndian.Uint16(b[offset : offset+2]))
+	offset += 2
+
+	if len(b) < offset+aadLength {
+		return nil, fmt.Errorf("context payload too short (aad)")
+	}
+	aad := b[offset : offset+aadLength]
+	offset += aadLength
+
+	if len(b) < offset+4 {
+		return nil, fmt.Errorf("context payload too short (cipherTextLength)")
+	}
+	cipherTextLength := int(binary.LittleEndian.Uint32(b[offset : offset+4]))
+	offset += 4
+
+	if len(b) < offset+cipherTextLength {
+		return nil, fmt.Errorf("context payload too short (cipherText)")
+	}
+	cipherText := b[offset : offset+cipherTextLength]
+	offset += cipherTextLength
+
+	// The remaining bytes are the auth tag (usually 16 bytes for GCM)
+	authTag := b[offset:]
+
+	// Zoom uses AES-256-GCM using SHA-256 of client_secret as the key
 	hash := sha256.Sum256([]byte(secret))
 
 	block, err := aes.NewCipher(hash[:])
@@ -71,8 +102,7 @@ func VerifyZoomContext(appContext string) (*ZoomAuthContext, error) {
 		return nil, err
 	}
 
-	// Zoom uses a 16-byte IV for GCM instead of the standard 12
-	aesgcm, err := cipher.NewGCMWithNonceSize(block, 16)
+	aesgcm, err := cipher.NewGCMWithNonceSize(block, len(iv))
 	if err != nil {
 		return nil, err
 	}
