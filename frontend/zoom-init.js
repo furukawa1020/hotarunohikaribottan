@@ -19,13 +19,19 @@ document.addEventListener("DOMContentLoaded", async () => {
                 const appCtx = await zoomSdk.getAppContext();
                 if (appCtx && appCtx.context) {
                     zoomContextStr = appCtx.context;
+                } else {
+                    document.querySelector(".status-text").innerHTML = "<span style='color:red'>エラー: Zoomから認証情報が取得できません</span>";
                 }
             } catch (ctxErr) {
                 console.warn("Could not get getAppContext", ctxErr);
+                document.querySelector(".status-text").innerHTML = "<span style='color:red'>SDKエラー: " + String(ctxErr) + "</span>";
             }
+        } else {
+            document.querySelector(".status-text").innerHTML = "<span style='color:orange'>Warning: Not running in Zoom Client</span>";
         }
     } catch (e) {
         console.warn("Zoom SDK failed or not running in Zoom Client", e);
+        document.querySelector(".status-text").innerHTML = "<span style='color:red'>SDK Init Error: " + String(e) + "</span>";
     }
 
     // Connect HTMX to WebSocket

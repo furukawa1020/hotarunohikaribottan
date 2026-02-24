@@ -23,7 +23,7 @@ type ZoomAuthContext struct {
 
 func getZoomClientSecret() string {
 	// In production, this MUST be set
-	secret := os.Getenv("ZOOM_CLIENT_SECRET")
+	secret := strings.TrimSpace(os.Getenv("ZOOM_CLIENT_SECRET"))
 	if secret == "" {
 		log.Println("WARNING: ZOOM_CLIENT_SECRET is not set. Using dummy secret for development.")
 		return "dummy_secret_for_local_dev"
