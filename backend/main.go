@@ -223,18 +223,27 @@ func main() {
 	fs := http.FileServer(http.Dir("../frontend"))
 	mux := http.NewServeMux()
 
-	// Intercept requests to save the Zoom App Context header into a cookie
+	// Intercept requests to inject the Zoom App Context header into index.html
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if ctxHeader := r.Header.Get("x-zoom-app-context"); ctxHeader != "" {
-			http.SetCookie(w, &http.Cookie{
-				Name:     "zoom_context",
-				Value:    ctxHeader,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   true,
-				SameSite: http.SameSiteNoneMode,
-			})
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			htmlBytes, err := os.ReadFile("../frontend/index.html")
+			if err != nil {
+				http.Error(w, "Failed to load index.html", http.StatusInternalServerError)
+				return
+			}
+
+			htmlStr := string(htmlBytes)
+			ctxHeader := r.Header.Get("x-zoom-app-context")
+
+			// Inject the context directly into a meta tag
+			metaTag := fmt.Sprintf(`<meta name="zoom-app-context" content="%s">`, ctxHeader)
+			htmlStr = strings.Replace(htmlStr, "</head>", metaTag+"\n</head>", 1)
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write([]byte(htmlStr))
+			return
 		}
+
 		fs.ServeHTTP(w, r)
 	})
 
