@@ -31,13 +31,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Connect HTMX to WebSocket
     const appContainer = document.getElementById("app");
 
-    // Dynamic wsUrl based on current window location
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // Dynamic wsUrl based on current window location (ensure WSS on production)
+    const isProd = window.location.hostname.includes("railway.app");
+    const protocol = isProd ? "wss:" : (window.location.protocol === "https:" ? "wss:" : "ws:");
     const host = window.location.host;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    roomId = urlParams.get('roomId') || "test-room";
-    pid = urlParams.get('pid') || pid;
 
     let wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(roomId)}&pid=${encodeURIComponent(pid)}`;
     if (zoomContextStr) {
