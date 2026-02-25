@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     let roomId = "default";
     let pid = "local-" + Math.floor(Math.random() * 10000);
     let zoomContextStr = "";
+    let hasError = false;
 
     const btn = document.getElementById("vote-btn");
     const statusText = document.querySelector(".status-text");
@@ -21,10 +22,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                     zoomContextStr = appCtx.context;
                 } else {
                     document.querySelector(".status-text").innerHTML = "<span style='color:red'>エラー: Zoomから認証情報が取得できません</span>";
+                    hasError = true;
                 }
             } catch (ctxErr) {
                 console.warn("Could not get getAppContext", ctxErr);
                 document.querySelector(".status-text").innerHTML = "<span style='color:red'>SDKエラー: " + String(ctxErr) + "</span>";
+                hasError = true;
             }
         } else {
             document.querySelector(".status-text").innerHTML = "<span style='color:orange'>Warning: Not running in Zoom Client</span>";
@@ -63,7 +66,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Initial UI Setup
     btn.removeAttribute("disabled");
-    statusText.innerHTML = "待機中 <span class='anonym-info'>(匿名)</span>";
+    if (!hasError) {
+        statusText.innerHTML = "待機中 <span class='anonym-info'>(匿名)</span>";
+    }
 
     // Handle audio autoplay policy workaround
     // Audio context might be restricted. Ensure button click enables audio context.
