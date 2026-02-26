@@ -38,19 +38,7 @@ func generateGaugeHTML(fill float64, triggered bool) string {
 </div>`, fill, statusHtml, triggerScript)
 }
 
-func handleGetState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	ctx := r.Context()
-	zCtx, ok := ctx.Value("zoomCtx").(*ZoomAuthContext)
-	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
+func sendState(w http.ResponseWriter, ctx context.Context, zCtx *ZoomAuthContext) {
 	// Calculate and return current state
 	AddParticipant(ctx, zCtx.Mid, zCtx.UID) // ensure active
 	participants, votes, triggered, err := CheckTriggerStatus(ctx, zCtx.Mid)
@@ -76,8 +64,28 @@ func handleGetState(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(generateGaugeHTML(fill, triggered)))
 }
 
+func handleGetState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := r.Context()
+	zCtx, ok := ctx.Value("zoomCtx").(*ZoomAuthContext)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sendState(w, ctx, zCtx)
+}
+
 func handleVote(w http.ResponseWriter, r *http.Request) {
-	// Temporarily allow any method for debugging POST rejection
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	ctx := r.Context()
 	zCtx, ok := ctx.Value("zoomCtx").(*ZoomAuthContext)
 	if !ok {
@@ -88,7 +96,7 @@ func handleVote(w http.ResponseWriter, r *http.Request) {
 	Vote(ctx, zCtx.Mid, zCtx.UID)
 
 	// Just fetch and return updated state immediately
-	handleGetState(w, r)
+	sendState(w, ctx, zCtx)
 }
 
 func main() {
