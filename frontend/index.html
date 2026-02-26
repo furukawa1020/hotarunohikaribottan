@@ -5,9 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>蛍の光ボタン (Hotaru End Button)</title>
-    <!-- HTMX and WebSocket Extension from unpkg -->
+    <!-- HTMX Core -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/ws.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -24,7 +23,7 @@
             <p class="status-text">Zoom連携待機中...</p>
         </div>
 
-        <button class="btn-primary" id="vote-btn" ws-send disabled>帰る</button>
+        <button class="btn-primary" id="vote-btn" disabled>帰る</button>
     </main>
 
     <!-- Zoom Apps SDK and Initialization Script -->

@@ -28,28 +28,35 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Only a warning. HTMX WebSocket fallback will still work!
     }
 
-    // Connect HTMX to WebSocket
+    // Setup HTTP Polling and Actions
     const appContainer = document.getElementById("app");
+    const gaugeContainer = document.getElementById("gauge-container");
 
-    // Dynamic wsUrl based on current window location (ensure WSS on production)
-    const isProd = window.location.hostname.includes("railway.app");
-    const protocol = isProd ? "wss:" : (window.location.protocol === "https:" ? "wss:" : "ws:");
+    const protocol = window.location.protocol;
     const host = window.location.host;
 
-    let wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(roomId)}&pid=${encodeURIComponent(pid)}`;
+    const urlParams = new URLSearchParams(window.location.search);
+    roomId = urlParams.get('roomId') || "test-room";
+    pid = urlParams.get('pid') || pid;
+
+    let pollingUrl = `${protocol}//${host}/api/state?roomId=${encodeURIComponent(roomId)}&pid=${encodeURIComponent(pid)}`;
+    let voteUrl = `${protocol}//${host}/api/vote?roomId=${encodeURIComponent(roomId)}&pid=${encodeURIComponent(pid)}`;
+
     if (zoomContextStr) {
-        wsUrl += `&zoom_context=${encodeURIComponent(zoomContextStr)}`;
+        pollingUrl += `&zoom_context=${encodeURIComponent(zoomContextStr)}`;
+        voteUrl += `&zoom_context=${encodeURIComponent(zoomContextStr)}`;
     }
 
-    // Remove existing ht-ext/ws-connect if they exist (from HTML hardcoding)
-    appContainer.removeAttribute("hx-ext");
-    appContainer.removeAttribute("ws-connect");
+    // Configure HTMX Polling on the gauge container
+    gaugeContainer.setAttribute("hx-get", pollingUrl);
+    gaugeContainer.setAttribute("hx-trigger", "every 2s");
+    gaugeContainer.setAttribute("hx-swap", "outerHTML");
 
-    // Set them newly with the FULL url (including context)
-    appContainer.setAttribute("hx-ext", "ws");
-    appContainer.setAttribute("ws-connect", wsUrl);
+    // Configure HTMX POST on the vote button
+    btn.setAttribute("hx-post", voteUrl);
+    btn.setAttribute("hx-swap", "none");
 
-    // HTMX Initialization Request - strictly AFTER the URL is built
+    // HTMX Initialization Request - Make HTMX parse our new polling attributes
     htmx.process(appContainer);
 
     // Initial UI Setup
