@@ -77,11 +77,7 @@ func handleGetState(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleVote(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+	// Temporarily allow any method for debugging POST rejection
 	ctx := r.Context()
 	zCtx, ok := ctx.Value("zoomCtx").(*ZoomAuthContext)
 	if !ok {
