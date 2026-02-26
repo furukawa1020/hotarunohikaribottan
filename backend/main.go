@@ -52,9 +52,13 @@ func handleGetState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Calculate and return current state
-	addParticipant(ctx, zCtx.Mid, zCtx.UID) // ensure active
-	participants := getParticipantCount(ctx, zCtx.Mid)
-	votes := getVoteCount(ctx, zCtx.Mid)
+	AddParticipant(ctx, zCtx.Mid, zCtx.UID) // ensure active
+	participants, votes, triggered, err := CheckTriggerStatus(ctx, zCtx.Mid)
+	if err != nil {
+		log.Printf("CheckTriggerStatus error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
 	fill := 0.0
 	if participants > 0 {
@@ -62,14 +66,6 @@ func handleGetState(w http.ResponseWriter, r *http.Request) {
 	}
 	if fill > 100 {
 		fill = 100
-	}
-
-	triggered := false
-	if fill >= 100 {
-		if !checkTrigger(ctx, zCtx.Mid) {
-			setTrigger(ctx, zCtx.Mid)
-		}
-		triggered = true
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -89,7 +85,7 @@ func handleVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addVote(ctx, zCtx.Mid, zCtx.UID)
+	Vote(ctx, zCtx.Mid, zCtx.UID)
 
 	// Just fetch and return updated state immediately
 	handleGetState(w, r)
