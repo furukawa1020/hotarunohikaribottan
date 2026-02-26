@@ -25,7 +25,7 @@ func generateGaugeHTML(fill float64, triggered bool) string {
 
 	triggerScript := ""
 	if triggered {
-		triggerScript = `<script>if(typeof audio !== 'undefined' && audio.paused) audio.play();</script>`
+		triggerScript = `<script>if(window.hotaruAudio && window.hotaruAudio.paused) window.hotaruAudio.play();</script>`
 	}
 
 	return fmt.Sprintf(`

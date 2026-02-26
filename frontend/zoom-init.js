@@ -63,11 +63,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.removeAttribute("disabled");
     statusText.innerHTML = "待機中 <span class='anonym-info'>(匿名)</span>";
 
+    // Global Audio Setup for autoplay bypass
+    window.hotaruAudio = new Audio('hotaru-piano.mp3');
+    window.hotaruAudio.loop = true;
+
     // Handle audio autoplay policy workaround
-    // Audio context might be restricted. Ensure button click enables audio context.
     btn.addEventListener('click', () => {
-        // By clicking the vote button, we satisfy the user interaction requirement for later Audio autoplay
-        const audio = new Audio();
-        audio.play().catch(() => { }).then(() => { audio.pause(); });
+        // Unlock with dummy play
+        window.hotaruAudio.play().then(() => {
+            window.hotaruAudio.pause();
+            console.log("Audio unlocked successfully");
+        }).catch(e => console.warn("Audio unlock failed:", e));
     });
 });
