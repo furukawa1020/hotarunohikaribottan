@@ -68,6 +68,10 @@ func handleGetState(w http.ResponseWriter, r *http.Request) {
 		fill = 100
 	}
 
+	if triggered {
+		fill = 100.0
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(generateGaugeHTML(fill, triggered)))
 }

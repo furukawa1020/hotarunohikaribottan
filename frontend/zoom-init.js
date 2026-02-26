@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Setup HTTP Polling and Actions
     const appContainer = document.getElementById("app");
-    const gaugeContainer = document.getElementById("gauge-container");
+    const pollingWrapper = document.getElementById("polling-wrapper");
 
     const protocol = window.location.protocol;
     const host = window.location.host;
@@ -47,14 +47,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         voteUrl += `&zoom_context=${encodeURIComponent(zoomContextStr)}`;
     }
 
-    // Configure HTMX Polling on the gauge container
-    gaugeContainer.setAttribute("hx-get", pollingUrl);
-    gaugeContainer.setAttribute("hx-trigger", "every 2s");
-    gaugeContainer.setAttribute("hx-swap", "outerHTML");
+    // Configure HTMX Polling on the gauge container wrapper
+    pollingWrapper.setAttribute("hx-get", pollingUrl);
+    pollingWrapper.setAttribute("hx-trigger", "every 2s");
+    pollingWrapper.setAttribute("hx-swap", "innerHTML");
 
-    // Configure HTMX POST on the vote button
+    // Configure HTMX POST on the vote button (Immediate UI Update)
     btn.setAttribute("hx-post", voteUrl);
-    btn.setAttribute("hx-swap", "none");
+    btn.setAttribute("hx-target", "#polling-wrapper");
+    btn.setAttribute("hx-swap", "innerHTML");
 
     // HTMX Initialization Request - Make HTMX parse our new polling attributes
     htmx.process(appContainer);
