@@ -139,6 +139,7 @@ func main() {
 	// Start HTTP Endpoints (No WebSockets)
 	mux.HandleFunc("/api/state", AuthMiddleware(handleGetState))
 	mux.HandleFunc("/api/vote", AuthMiddleware(handleVote))
+	mux.HandleFunc("/docs/", handleMarkdown)
 	port := strings.TrimSpace(os.Getenv("PORT"))
 	if port == "" {
 		port = "8080"
